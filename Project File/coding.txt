@@ -1,0 +1,91 @@
+Document/CONVOLUTIONAL_NEURAL_NETWORK_WITH_TRANSFER_LEARNING_FOR_RICE_TYPE_CLASSIFICATION (1)(1)-1.pdfDocument/CONVOLUTIONAL_NEURAL_NETWORK_WITH_TRANSFER_LEARNING_FOR_RICE_TYPE_CLASSIFICATION (1)(1)-1.pdfimport os
+import numpy as np
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from sklearn.metrics import classification_report, confusion_matrix
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
+from tensorflow.keras.optimizers import Adam
+
+# 1. Dataset Paths
+data_dir = "rice_dataset"
+img_height, img_width = 224, 224
+batch_size = 32
+
+# 2. Data Generators (with augmentation for training)
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    validation_split=0.2,
+    rotation_range=20,
+    zoom_range=0.2,
+    horizontal_flip=True
+)
+
+train_generator = train_datagen.flow_from_directory(
+    data_dir,
+    target_size=(img_height, img_width),
+    batch_size=batch_size,
+    subset='training',
+    class_mode='categorical'
+)
+
+val_generator = train_datagen.flow_from_directory(
+    data_dir,
+    target_size=(img_height, img_width),
+    batch_size=batch_size,
+    subset='validation',
+    class_mode='categorical'
+)
+
+num_classes = len(train_generator.class_indices)
+class_names = list(train_generator.class_indices.keys())
+
+# 3. Model: Transfer Learning using EfficientNetB0
+base_model = EfficientNetB0(weights='imagenet', include_top=False, input_shape=(img_height, img_width, 3))
+base_model.trainable = False  # Freeze the base model
+
+x = base_model.output
+x = GlobalAveragePooling2D()(x)
+x = Dropout(0.5)(x)
+x = Dense(128, activation='relu')(x)
+predictions = Dense(num_classes, activation='softmax')(x)
+
+model = Model(inputs=base_model.input, outputs=predictions)
+
+# 4. Compile
+model.compile(optimizer=Adam(learning_rate=0.0001),
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+# 5. Train
+history = model.fit(
+    train_generator,
+    epochs=10,
+    validation_data=val_generator
+)
+
+# 6. Evaluation
+val_generator.reset()
+Y_pred = model.predict(val_generator)
+y_pred = np.argmax(Y_pred, axis=1)
+
+print("\nClassification Report:\n")
+print(classification_report(val_generator.classes, y_pred, target_names=class_names))
+
+# 7. Confusion Matrix
+cm = confusion_matrix(val_generator.classes, y_pred)
+plt.figure(figsize=(8, 6))
+plt.imshow(cm, cmap='Blues')
+plt.title("Confusion Matrix")
+plt.colorbar()
+plt.xticks(ticks=np.arange(num_classes), labels=class_names, rotation=45)
+plt.yticks(ticks=np.arange(num_classes), labels=class_names)
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.tight_layout()
+plt.show()
+
+# 8. Save the model
+model.save("rice_type_classifier.h5")
